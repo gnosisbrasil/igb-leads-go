@@ -1,0 +1,5 @@
+.env
+api
+igb-leads-go
+uploads/
+*.log
