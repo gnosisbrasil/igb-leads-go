@@ -5,13 +5,34 @@ package middleware
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
-// CORS allows the configured frontend origin with credentials.
-func CORS(origin string) func(http.Handler) http.Handler {
+// CORS allows the configured frontend origin(s) with credentials.
+// The setting accepts a comma-separated allowlist; the request origin is
+// reflected when listed, otherwise the first entry is sent.
+func CORS(origins string) func(http.Handler) http.Handler {
+	allowed := []string{}
+	for _, o := range strings.Split(origins, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			allowed = append(allowed, o)
+		}
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := ""
+			if len(allowed) > 0 {
+				origin = allowed[0]
+			}
+			if req := r.Header.Get("Origin"); req != "" {
+				for _, o := range allowed {
+					if o == req {
+						origin = req
+						break
+					}
+				}
+			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
