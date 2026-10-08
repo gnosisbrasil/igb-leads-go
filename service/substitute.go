@@ -318,7 +318,7 @@ func SubstitutePatterns(content string, lead *model.Lead, campaign *model.Campai
 		values["{{email}}"] = lead.Email
 		values["{{whatsapp}}"] = lead.Whatsapp
 		if lead.CheckinCode != "" {
-			values["{{url_voucher}}"] = strings.TrimSuffix(frontendURL, "/") + "/checkin/" + lead.CheckinCode
+			values["{{url_voucher}}"] = strings.TrimSuffix(apiURL, "/") + "/api/voucher/" + lead.CheckinCode
 			values["{{url_qrcode_imagem}}"] = strings.TrimSuffix(apiURL, "/") + "/api/qr/" + lead.CheckinCode
 		} else {
 			values["{{url_voucher}}"] = ""

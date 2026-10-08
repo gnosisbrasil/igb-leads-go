@@ -277,7 +277,11 @@ func (h *LeadHandler) ServeQRImage(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, "QR Code não encontrado")
 		return
 	}
-	png, err := service.GenerateQRPNG(lead.CheckinCode)
+	size := 300
+	if n, err := strconv.Atoi(r.URL.Query().Get("size")); err == nil && n >= 100 && n <= 1200 {
+		size = n
+	}
+	png, err := service.GenerateQRPNGSize(lead.CheckinCode, size)
 	if err != nil {
 		WriteError(w, http.StatusNotFound, "QR Code não encontrado")
 		return

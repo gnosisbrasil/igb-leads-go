@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"html"
 	"net/http"
+	"strings"
 
 	"igb-leads-go/config"
 	"igb-leads-go/repository"
@@ -12,10 +14,11 @@ type OGHandler struct {
 	cfg       *config.Config
 	forms     *repository.FormRepository
 	campaigns *repository.CampaignRepository
+	leads     *repository.LeadRepository
 }
 
-func NewOGHandler(cfg *config.Config, forms *repository.FormRepository, campaigns *repository.CampaignRepository) *OGHandler {
-	return &OGHandler{cfg: cfg, forms: forms, campaigns: campaigns}
+func NewOGHandler(cfg *config.Config, forms *repository.FormRepository, campaigns *repository.CampaignRepository, leads *repository.LeadRepository) *OGHandler {
+	return &OGHandler{cfg: cfg, forms: forms, campaigns: campaigns, leads: leads}
 }
 
 var objectiveLabels = map[string]string{
@@ -90,4 +93,61 @@ func (h *OGHandler) Render(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(html))
+}
+
+// buildVoucherHTML renders the crawler page for a voucher link: og tags
+// with the QR as image, then an instant redirect for humans.
+func buildVoucherHTML(title, desc, voucherURL, qrURL string) string {
+	title, desc = html.EscapeString(title), html.EscapeString(desc)
+	return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>` + title + `</title>
+  <meta name="description" content="` + desc + `">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="` + voucherURL + `">
+  <meta property="og:title" content="` + title + `">
+  <meta property="og:description" content="` + desc + `">
+  <meta property="og:image" content="` + qrURL + `">
+  <meta property="og:image:width" content="600">
+  <meta property="og:image:height" content="600">
+  <meta http-equiv="refresh" content="0;url=` + voucherURL + `">
+</head>
+<body>
+  <script>window.location.href="` + voucherURL + `";</script>
+</body>
+</html>`
+}
+
+// Voucher serves /api/voucher/{code}: WhatsApp/TG crawlers get og tags
+// with the scannable QR, humans bounce to the frontend voucher page.
+func (h *OGHandler) Voucher(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	lead, err := h.leads.ByCheckinCode(r.Context(), code)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><title>Voucher não encontrado</title></head><body><h1>Link inválido</h1></body></html>`))
+		return
+	}
+	title := "Seu voucher"
+	if lead.FormID != nil {
+		if f, ferr := h.forms.ByID(r.Context(), *lead.FormID); ferr == nil {
+			if c, cerr := h.campaigns.ByID(r.Context(), f.CampaignID); cerr == nil {
+				title = "Seu voucher - " + c.Title
+			}
+		}
+	}
+	base := strings.TrimSuffix(h.cfg.FrontendURL, "/")
+	if base == "" {
+		base = "https://leads.gnosisbrasil.com"
+	}
+	api := strings.TrimSuffix(h.cfg.APIURL, "/")
+	voucherURL := base + "/checkin/" + lead.CheckinCode
+	qrURL := api + "/api/qr/" + lead.CheckinCode + "?size=600"
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(buildVoucherHTML(title, "Apresente este QR Code na entrada do evento.", voucherURL, qrURL)))
 }

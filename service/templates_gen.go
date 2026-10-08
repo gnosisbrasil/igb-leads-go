@@ -55,16 +55,14 @@ Equipe Gnosis Brasil`, SortOrder: 2, Phase: "contacted"},
 
 Seu voucher para {{tipo_evento}} "{{titulo_campanha}}" está pronto!
 
-{{url_qrcode_imagem}}
-
 📅 Data: {{data_evento}}
 🕐 Horário: {{hora_evento}}
 📍 {{endereco_completo}}
 🗺️ Como chegar: {{google_maps_link}}
 
-Apresente no dia do evento para o responsável pela turma.
+Apresente o QR Code da prévia abaixo no dia do evento para o responsável pela turma.
 
-🔗 Link: {{url_voucher}}
+🔗 Voucher: {{url_voucher}}
 
 Equipe Gnosis Brasil`, SortOrder: 3, Phase: "confirmed"},
 		{Key: "lembrete_conferencia", Label: "Lembrete da Confer\u00eancia", Content: `{{saudacao}} {{inscrito_nome}}! 🔔
@@ -142,16 +140,14 @@ Equipe Gnosis Brasil`, SortOrder: 2, Phase: "contacted"},
 
 Seu voucher para {{tipo_evento}} "{{titulo_campanha}}" está pronto!
 
-{{url_qrcode_imagem}}
-
 📅 Data(s): {{data_evento}}
 🕐 Horário: {{hora_evento}}
 📍 {{endereco_completo}}
 🗺️ Como chegar: {{google_maps_link}}
 
-Apresente no dia do evento para o responsável pela turma.
+Apresente o QR Code da prévia abaixo no dia do evento para o responsável pela turma.
 
-🔗 Link: {{url_voucher}}
+🔗 Voucher: {{url_voucher}}
 
 Equipe Gnosis Brasil`, SortOrder: 3, Phase: "confirmed"},
 		{Key: "lembrete_conferencia", Label: "Lembrete da Confer\u00eancia", Content: `{{saudacao}} {{inscrito_nome}}! 🔔
@@ -232,17 +228,15 @@ Equipe Gnosis Brasil`, SortOrder: 2, Phase: "contacted"},
 
 Seu voucher para {{tipo_evento}} "{{titulo_campanha}}" está pronto!
 
-{{url_qrcode_imagem}}
-
 📅 Início: {{data_evento}}
 🕐 Horário: {{hora_evento}}
 📆 Dias: {{dias_semana}}
 📍 {{endereco_completo}}
 🗺️ Como chegar: {{google_maps_link}}
 
-Apresente no dia do evento para o responsável pela turma.
+Apresente o QR Code da prévia abaixo no dia do evento para o responsável pela turma.
 
-🔗 Link: {{url_voucher}}
+🔗 Voucher: {{url_voucher}}
 
 Equipe Gnosis Brasil`, SortOrder: 3, Phase: "confirmed"},
 		{Key: "lembrete_conferencia", Label: "Lembrete da Confer\u00eancia", Content: `{{saudacao}} {{inscrito_nome}}! 🔔

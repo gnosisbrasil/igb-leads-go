@@ -16,13 +16,22 @@ var (
 
 // GenerateQRPNG renders the check-in code as a 300px PNG.
 func GenerateQRPNG(content string) ([]byte, error) {
+	return GenerateQRPNGSize(content, 300)
+}
+
+// GenerateQRPNGSize renders the check-in code at the given pixel size
+// (link-preview crawlers want 600px; the door scanner is fine with 300).
+func GenerateQRPNGSize(content string, size int) ([]byte, error) {
+	if size < 100 || size > 1200 {
+		size = 300
+	}
 	qr, err := qrcode.New(content, qrcode.Medium)
 	if err != nil {
 		return nil, err
 	}
 	qr.ForegroundColor = qrDark
 	qr.BackgroundColor = qrLight
-	return qr.PNG(300)
+	return qr.PNG(size)
 }
 
 // GenerateQRDataURL renders the PNG as a data URL.

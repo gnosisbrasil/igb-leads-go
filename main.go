@@ -81,7 +81,7 @@ func main() {
 	formHandler := handler.NewFormHandler(cfg, forms, campaigns)
 	leadHandler := handler.NewLeadHandler(cfg, leads, forms, campaigns, logs, auto)
 	publicHandler := handler.NewPublicHandler(cfg, campaigns, forms, leads, templates, whatsapp)
-	ogHandler := handler.NewOGHandler(cfg, forms, campaigns)
+	ogHandler := handler.NewOGHandler(cfg, forms, campaigns, leads)
 	paymentHandler := handler.NewPaymentHandler(cfg, campaigns, users, notify, efi, campaignHandler.AdvanceToWaitingExecutive)
 	reportHandler := handler.NewReportHandler(reports, forms, users, regions, logs, campaigns)
 	notificationHandler := handler.NewNotificationHandler(notify)
@@ -113,6 +113,7 @@ func main() {
 	mux.HandleFunc("GET /api/config", handler.APIConfig(cfg.TurnstileSiteKey))
 	mux.HandleFunc("GET /api/qr/{checkin_code}", leadHandler.ServeQRImage)
 	mux.HandleFunc("GET /api/og/{token}", ogHandler.Render)
+	mux.HandleFunc("GET /api/voucher/{code}", ogHandler.Voucher)
 
 	// Auth (mirrors auth.routes.js).
 	mux.Handle("POST /api/auth/register", authLimiter.Middleware("Muitas tentativas. Tente novamente em 15 minutos.",

@@ -88,7 +88,7 @@ func TestSubstitutePatterns(t *testing.T) {
 	city, addr := "Campinas", "Rua X"
 	campaign := &model.Campaign{Title: "Palestra", Objectives: strp("camara_publica"), AddressCity: &city, Address: &addr}
 	got := SubstitutePatterns("{{saudacao}} {{inscrito_nome}} {{inscrito_nome_completo}} em {{tipo_evento}} {{titulo_campanha}} @ {{cidade}} {{endereco_completo}} {{url_voucher}} {{codigo_checkin}}", lead, campaign, "", "https://front", "https://api")
-	want := "Olá MARIA MARIA SILVA em Câmara Pública Palestra @ Campinas Rua X, Campinas https://front/checkin/ABC123 ABC123"
+	want := "Olá MARIA MARIA SILVA em Câmara Pública Palestra @ Campinas Rua X, Campinas https://api/api/voucher/ABC123 ABC123"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
