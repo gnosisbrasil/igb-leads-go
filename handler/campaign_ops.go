@@ -35,7 +35,7 @@ var allowedUpdateFields = []string{
 
 var jsonbUpdateFields = map[string]bool{
 	"weekdays": true, "event_dates": true, "turmas": true,
-	"form_fields": true, "template_config": true,
+	"form_fields": true, "template_config": true, "products": true,
 }
 
 // Goal updates the lead goal of a campaign at any status.
@@ -564,6 +564,7 @@ var proposeEditFields = []string{
 	"title", "description", "address", "address_number", "address_neighborhood",
 	"address_city", "address_state", "address_zipcode", "maps_url", "google_maps_link",
 	"start_date", "end_date", "event_date", "event_time", "weekdays", "event_dates",
+	"turmas", "products", "snack_price",
 }
 
 func (h *CampaignHandler) ProposeEdit(w http.ResponseWriter, r *http.Request) {
@@ -583,8 +584,10 @@ func (h *CampaignHandler) ProposeEdit(w http.ResponseWriter, r *http.Request) {
 		WriteAppError(w, service.Forbidden(""), "Erro ao propor edição")
 		return
 	}
-	if c.Status != "in_progress" {
-		WriteAppError(w, service.BadRequest("Campanha precisa estar em andamento para propor alterações"), "Erro ao propor edição")
+	switch c.Status {
+	case "in_progress", "waiting_executive", "accepted":
+	default:
+		WriteAppError(w, service.BadRequest("Campanha precisa estar ativa para propor alterações"), "Erro ao propor edição")
 		return
 	}
 	proposed := map[string]any{}
