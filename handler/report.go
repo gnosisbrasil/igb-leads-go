@@ -13,15 +13,16 @@ import (
 
 // ReportHandler mirrors ReportController.
 type ReportHandler struct {
-	reports *repository.ReportRepository
-	forms   *repository.FormRepository
-	users   *repository.UserRepository
-	regions *repository.RegionRepository
-	logs    *repository.LogRepository
+	reports   *repository.ReportRepository
+	forms     *repository.FormRepository
+	users     *repository.UserRepository
+	regions   *repository.RegionRepository
+	logs      *repository.LogRepository
+	campaigns *repository.CampaignRepository
 }
 
-func NewReportHandler(reports *repository.ReportRepository, forms *repository.FormRepository, users *repository.UserRepository, regions *repository.RegionRepository, logs *repository.LogRepository) *ReportHandler {
-	return &ReportHandler{reports: reports, forms: forms, users: users, regions: regions, logs: logs}
+func NewReportHandler(reports *repository.ReportRepository, forms *repository.FormRepository, users *repository.UserRepository, regions *repository.RegionRepository, logs *repository.LogRepository, campaigns *repository.CampaignRepository) *ReportHandler {
+	return &ReportHandler{reports: reports, forms: forms, users: users, regions: regions, logs: logs, campaigns: campaigns}
 }
 
 func (h *ReportHandler) AdminReport(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +239,70 @@ func (h *ReportHandler) ExecutiveReport(w http.ResponseWriter, r *http.Request) 
 		"totalLeadsGathered":   totalLeads,
 		"conversionRate":       service.ConversionRateString(convertedLeads, totalLeads),
 		"campaignsPerformance": perf,
+	})
+}
+
+// Overview returns scoped report aggregates: totals, per-campaign and
+// per-region breakdowns, and signups per day. Filters: campaign_id,
+// region_id (admin only), days (default 30).
+func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	user, err := h.users.ByID(ctx, authctx.UserID(r))
+	if err != nil {
+		WriteError(w, http.StatusUnauthorized, "Usuário não encontrado")
+		return
+	}
+	scope, err := service.ResolveReportScope(user.Role, user.ID, user.RegionID, q.Get("campaign_id"), q.Get("region_id"))
+	if err != nil {
+		if err == service.ErrRegionForbidden {
+			WriteError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if scope.CampaignID != nil && user.Role != model.RoleAdmin {
+		c, err := h.campaigns.ByID(ctx, *scope.CampaignID)
+		if err != nil {
+			WriteError(w, http.StatusNotFound, "Campanha não encontrada")
+			return
+		}
+		if !service.CampaignInScope(scope, c.RegionID, c.UserID, c.TrafficManagerID) {
+			WriteError(w, http.StatusForbidden, "Campanha fora do seu escopo")
+			return
+		}
+	}
+	ids, err := h.reports.CampaignIDsFiltered(ctx, scope.CampaignID, scope.RegionID, scope.TrafficManagerID, scope.OwnerID)
+	if err != nil {
+		log.Printf("Erro no overview: %v", err)
+		WriteError(w, http.StatusInternalServerError, "Erro interno do servidor")
+		return
+	}
+	byStatus, err1 := h.reports.LeadStatusCounts(ctx, ids)
+	byCampaign, err2 := h.reports.CampaignLeadStats(ctx, ids)
+	byRegion, err3 := h.reports.RegionLeadStats(ctx, ids)
+	days, _ := strconv.Atoi(firstOr(q.Get("days"), "30"))
+	byDay, err4 := h.reports.LeadDailyCounts(ctx, ids, days)
+	if err := firstErr(err1, err2, err3, err4); err != nil {
+		log.Printf("Erro no overview: %v", err)
+		WriteError(w, http.StatusInternalServerError, "Erro interno do servidor")
+		return
+	}
+	total := 0
+	for _, n := range byStatus {
+		total += n
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"totals": map[string]any{
+			"campaigns":       len(ids),
+			"leads":           total,
+			"by_status":       byStatus,
+			"conversion_rate": service.ConversionRate(byStatus["converted"], total),
+		},
+		"by_campaign": byCampaign,
+		"by_region":   byRegion,
+		"by_day":      byDay,
 	})
 }
 

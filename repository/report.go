@@ -93,6 +93,208 @@ func (r *ReportRepository) CampaignsByTrafficManager(ctx context.Context, userID
 	return pgx.CollectRows(rows, pgx.RowToStructByName[model.Campaign])
 }
 
+// CampaignIDsFiltered returns campaign IDs matching the resolved scope.
+// All filters are optional; nil means unfiltered.
+func (r *ReportRepository) CampaignIDsFiltered(ctx context.Context, campaignID, regionID, trafficManagerID, ownerID *string) ([]string, error) {
+	q := `SELECT id FROM campaigns WHERE 1=1`
+	args := []any{}
+	add := func(cond string, v string) {
+		args = append(args, v)
+		q += ` AND ` + cond + ` $` + itoa(len(args))
+	}
+	if campaignID != nil {
+		add(`id =`, *campaignID)
+	}
+	if regionID != nil {
+		add(`region_id =`, *regionID)
+	}
+	if trafficManagerID != nil {
+		add(`traffic_manager_id =`, *trafficManagerID)
+	}
+	if ownerID != nil {
+		add(`user_id =`, *ownerID)
+	}
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// LeadStatusCounts groups lead counts by status for the given campaigns.
+func (r *ReportRepository) LeadStatusCounts(ctx context.Context, campaignIDs []string) (map[string]int, error) {
+	out := map[string]int{}
+	if len(campaignIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT l.status, COUNT(*)
+		FROM leads l
+		JOIN forms f ON f.id = l.form_id
+		WHERE f.campaign_id = ANY($1)
+		GROUP BY l.status`, campaignIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var n int
+		if err := rows.Scan(&status, &n); err != nil {
+			return nil, err
+		}
+		out[status] = n
+	}
+	return out, rows.Err()
+}
+
+// CampaignLeadStat is one row of the per-campaign breakdown.
+type CampaignLeadStat struct {
+	ID         string         `json:"id"`
+	Title      string         `json:"title"`
+	Status     string         `json:"status"`
+	Objectives *string        `json:"objectives"`
+	RegionID   *string        `json:"region_id"`
+	Leads      int            `json:"leads"`
+	ByStatus   map[string]int `json:"by_status"`
+}
+
+// CampaignLeadStats lists per-campaign lead totals with status breakdown.
+func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []string) ([]CampaignLeadStat, error) {
+	out := []CampaignLeadStat{}
+	if len(campaignIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `SELECT id, title, status, objectives, region_id FROM campaigns WHERE id = ANY($1) ORDER BY created_at DESC`, campaignIDs)
+	if err != nil {
+		return nil, err
+	}
+	stats := map[string]*CampaignLeadStat{}
+	order := []string{}
+	for rows.Next() {
+		var s CampaignLeadStat
+		if err := rows.Scan(&s.ID, &s.Title, &s.Status, &s.Objectives, &s.RegionID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		s.ByStatus = map[string]int{}
+		stats[s.ID] = &s
+		order = append(order, s.ID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	detail, err := r.pool.Query(ctx, `
+		SELECT f.campaign_id, l.status, COUNT(*)
+		FROM leads l
+		JOIN forms f ON f.id = l.form_id
+		WHERE f.campaign_id = ANY($1)
+		GROUP BY f.campaign_id, l.status`, campaignIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer detail.Close()
+	for detail.Next() {
+		var cid, status string
+		var n int
+		if err := detail.Scan(&cid, &status, &n); err != nil {
+			return nil, err
+		}
+		if s, ok := stats[cid]; ok {
+			s.ByStatus[status] = n
+			s.Leads += n
+		}
+	}
+	if err := detail.Err(); err != nil {
+		return nil, err
+	}
+	for _, id := range order {
+		out = append(out, *stats[id])
+	}
+	return out, nil
+}
+
+// RegionLeadStat is one row of the per-region breakdown.
+type RegionLeadStat struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Campaigns int    `json:"campaigns"`
+	Leads     int    `json:"leads"`
+}
+
+// RegionLeadStats groups campaign and lead counts by region.
+func (r *ReportRepository) RegionLeadStats(ctx context.Context, campaignIDs []string) ([]RegionLeadStat, error) {
+	out := []RegionLeadStat{}
+	if len(campaignIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT g.id, g.name, COUNT(DISTINCT c.id), COUNT(l.id)
+		FROM regions g
+		JOIN campaigns c ON c.region_id = g.id AND c.id = ANY($1)
+		LEFT JOIN forms f ON f.campaign_id = c.id
+		LEFT JOIN leads l ON l.form_id = f.id
+		GROUP BY g.id, g.name
+		ORDER BY COUNT(l.id) DESC`, campaignIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var s RegionLeadStat
+		if err := rows.Scan(&s.ID, &s.Name, &s.Campaigns, &s.Leads); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// DailyLeadCount is one row of the signups-per-day series.
+type DailyLeadCount struct {
+	Date  string `json:"date"`
+	Leads int    `json:"leads"`
+}
+
+// LeadDailyCounts returns signups per day (oldest first, capped).
+func (r *ReportRepository) LeadDailyCounts(ctx context.Context, campaignIDs []string, days int) ([]DailyLeadCount, error) {
+	out := []DailyLeadCount{}
+	if len(campaignIDs) == 0 {
+		return out, nil
+	}
+	if days <= 0 || days > 365 {
+		days = 30
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT to_char(l.created_at, 'YYYY-MM-DD'), COUNT(*)
+		FROM leads l
+		JOIN forms f ON f.id = l.form_id
+		WHERE f.campaign_id = ANY($1) AND l.created_at >= now() - ($2 || ' days')::interval
+		GROUP BY 1 ORDER BY 1`, campaignIDs, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d DailyLeadCount
+		if err := rows.Scan(&d.Date, &d.Leads); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // LeadIDStatus mirrors the leads attributes projection (id, status only)
 // nested inside campaignsPerformance forms.
 type LeadIDStatus struct {

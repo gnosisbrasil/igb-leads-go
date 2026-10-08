@@ -83,7 +83,7 @@ func main() {
 	publicHandler := handler.NewPublicHandler(cfg, campaigns, forms, leads, templates, whatsapp)
 	ogHandler := handler.NewOGHandler(cfg, forms, campaigns)
 	paymentHandler := handler.NewPaymentHandler(cfg, campaigns, users, notify, efi, campaignHandler.AdvanceToWaitingExecutive)
-	reportHandler := handler.NewReportHandler(reports, forms, users, regions, logs)
+	reportHandler := handler.NewReportHandler(reports, forms, users, regions, logs, campaigns)
 	notificationHandler := handler.NewNotificationHandler(notify)
 	uploadHandler := handler.NewUploadHandler(cfg, uploads)
 	templateHandler := handler.NewTemplateHandler(cfg, templates, leads, forms, campaigns, whatsapp)
@@ -235,6 +235,7 @@ func main() {
 	mux.Handle("GET /api/reports/system-logs", chain(http.HandlerFunc(reportHandler.SystemLogs), auth, adminOnly))
 	mux.Handle("GET /api/reports/supervisor", chain(http.HandlerFunc(reportHandler.SupervisorReport), auth, role(model.RoleAdmin, model.RoleSupervisor)))
 	mux.Handle("GET /api/reports/executive", chain(http.HandlerFunc(reportHandler.ExecutiveReport), auth, role(model.RoleAdmin, model.RoleExecutive)))
+	mux.Handle("GET /api/reports/overview", chain(http.HandlerFunc(reportHandler.Overview), auth))
 
 	// Notifications (mirrors notifications.routes.js).
 	mux.Handle("GET /api/notifications", chain(http.HandlerFunc(notificationHandler.List), auth))
