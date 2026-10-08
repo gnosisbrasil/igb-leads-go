@@ -279,7 +279,7 @@ func (r *ReportRepository) LeadDailyCounts(ctx context.Context, campaignIDs []st
 		SELECT to_char(l.created_at, 'YYYY-MM-DD'), COUNT(*)
 		FROM leads l
 		JOIN forms f ON f.id = l.form_id
-		WHERE f.campaign_id = ANY($1) AND l.created_at >= now() - ($2 || ' days')::interval
+		WHERE f.campaign_id = ANY($1) AND l.created_at >= now() - make_interval(days => $2)
 		GROUP BY 1 ORDER BY 1`, campaignIDs, days)
 	if err != nil {
 		return nil, err
