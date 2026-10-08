@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -281,6 +282,7 @@ func (h *CampaignHandler) Submit(w http.ResponseWriter, r *http.Request) {
 		if forms == nil {
 			forms = []model.Form{}
 		}
+		h.log("CAMPAIGN_SUBMITTED", r, "campaign", id, "Campanha enviada para pagamento", nil)
 		WriteJSON(w, http.StatusOK, map[string]any{"message": "Campanha enviada para pagamento",
 			"campaign": CampaignWithForms{Campaign: *c, Forms: forms}})
 		return
@@ -299,6 +301,7 @@ func (h *CampaignHandler) Submit(w http.ResponseWriter, r *http.Request) {
 			WriteAppError(w, err, "Erro ao submeter campanha")
 			return
 		}
+		h.log("CAMPAIGN_SUBMITTED", r, "campaign", id, "Campanha enviada para executivos", nil)
 		WriteJSON(w, http.StatusOK, map[string]any{"message": "Pagamento confirmado! Campanha disponível para executivos.", "campaign": fresh})
 		return
 	}
@@ -421,6 +424,7 @@ func (h *CampaignHandler) Reject(w http.ResponseWriter, r *http.Request) {
 	c.Status = "draft"
 	c.RejectionReason = &body.Reason
 	c.TrafficManagerID = nil
+	h.log("CAMPAIGN_REJECTED", r, "campaign", id, "Campanha rejeitada", map[string]any{"reason": body.Reason})
 	minis, _ := h.users.MinisByIDs(r.Context(), []string{c.UserID})
 	h.notify.NotifyCampaignRejection(r.Context(), c.ID, c.Title, c.UserID, body.Reason)
 	var short *UserMiniShort
@@ -601,6 +605,12 @@ func (h *CampaignHandler) ProposeEdit(w http.ResponseWriter, r *http.Request) {
 		WriteAppError(w, err, "Erro ao propor edição")
 		return
 	}
+	fields := make([]string, 0, len(proposed))
+	for k := range proposed {
+		fields = append(fields, k)
+	}
+	sort.Strings(fields)
+	h.log("EDIT_PROPOSED", r, "campaign", id, "Edição proposta para aprovação", map[string]any{"fields": fields})
 	h.notify.NotifyEditProposed(r.Context(), h.users, c.ID, c.Title, c.TrafficManagerID, c.RegionID)
 	WriteJSON(w, http.StatusOK, map[string]any{"message": "Alterações propostas e aguardando aprovação", "pending_edit": proposed})
 }
@@ -642,6 +652,7 @@ func (h *CampaignHandler) ApproveEdit(w http.ResponseWriter, r *http.Request) {
 		WriteAppError(w, err, "Erro ao aprovar edição")
 		return
 	}
+	h.log("EDIT_APPROVED", r, "campaign", id, "Edição aprovada e aplicada", nil)
 	fresh, err := h.campaigns.ByID(r.Context(), id)
 	if err != nil {
 		WriteAppError(w, err, "Erro ao aprovar edição")
@@ -651,6 +662,10 @@ func (h *CampaignHandler) ApproveEdit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CampaignHandler) RejectEdit(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	id := r.PathValue("id")
 	c, err := h.campaigns.ByID(r.Context(), id)
 	if err != nil {
@@ -669,7 +684,51 @@ func (h *CampaignHandler) RejectEdit(w http.ResponseWriter, r *http.Request) {
 		WriteAppError(w, err, "Erro ao rejeitar edição")
 		return
 	}
+	h.log("EDIT_REJECTED", r, "campaign", id, "Edição proposta rejeitada", map[string]any{"reason": body.Reason})
 	WriteJSON(w, http.StatusOK, map[string]string{"message": "Alterações rejeitadas"})
+}
+
+// Audit returns the campaign approval trail, newest-first.
+func (h *CampaignHandler) Audit(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	c, err := h.campaigns.ByID(r.Context(), id)
+	if err != nil {
+		WriteAppError(w, service.NotFound("Campanha não encontrada"), "Erro ao carregar histórico")
+		return
+	}
+	user := authctx.CurrentUser(r)
+	canSee := user.Role == model.RoleAdmin || user.Role == model.RoleSupervisor ||
+		c.UserID == user.ID || (c.TrafficManagerID != nil && *c.TrafficManagerID == user.ID)
+	if !canSee {
+		WriteAppError(w, service.Forbidden(""), "Erro ao carregar histórico")
+		return
+	}
+	entries, err := h.logs.ByEntity(r.Context(), "campaign", id, 50)
+	if err != nil {
+		WriteAppError(w, err, "Erro ao carregar histórico")
+		return
+	}
+	ids := []string{}
+	for _, e := range entries {
+		if e.UserID != nil && *e.UserID != "" {
+			ids = append(ids, *e.UserID)
+		}
+	}
+	minis, _ := h.users.MinisByIDs(r.Context(), ids)
+	out := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		var actor map[string]any
+		if e.UserID != nil {
+			if m := minis[*e.UserID]; m != nil {
+				actor = map[string]any{"id": m.ID, "first_name": m.FirstName, "last_name": m.LastName}
+			}
+		}
+		out = append(out, map[string]any{
+			"id": e.ID, "action": e.Action, "description": e.Description,
+			"metadata": e.Metadata, "created_at": e.CreatedAt, "actor": actor,
+		})
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"entries": out})
 }
 
 func (h *CampaignHandler) Health(w http.ResponseWriter, r *http.Request) {

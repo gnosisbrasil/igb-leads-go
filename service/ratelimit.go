@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,8 +29,16 @@ func NewRateLimiter(window time.Duration, max int) *RateLimiter {
 }
 
 func clientIP(r *http.Request) string {
+	// Behind proxies X-Forwarded-For is "client, proxy1, ...": the
+	// client is always the first entry. Using the whole header (or
+	// the proxy RemoteAddr) collapses every user into one bucket.
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		return fwd
+		if ip, _, _ := strings.Cut(fwd, ","); strings.TrimSpace(ip) != "" {
+			return strings.TrimSpace(ip)
+		}
+	}
+	if real := r.Header.Get("X-Real-Ip"); real != "" {
+		return strings.TrimSpace(real)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

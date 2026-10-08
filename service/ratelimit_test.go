@@ -79,3 +79,46 @@ func TestMiddleware429Shape(t *testing.T) {
 		t.Fatalf("body = %q, want %q", w.Body.String(), want)
 	}
 }
+
+func TestClientIPFirstForwarded(t *testing.T) {
+	mk := func(xff, real string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/x", nil)
+		r.RemoteAddr = "10.9.9.9:1234"
+		if xff != "" {
+			r.Header.Set("X-Forwarded-For", xff)
+		}
+		if real != "" {
+			r.Header.Set("X-Real-Ip", real)
+		}
+		return r
+	}
+	if got := clientIP(mk("1.2.3.4, 5.6.7.8", "")); got != "1.2.3.4" {
+		t.Fatalf("XFF multiplo = %q, want primeiro", got)
+	}
+	if got := clientIP(mk("", "9.9.9.9")); got != "9.9.9.9" {
+		t.Fatalf("X-Real-Ip = %q", got)
+	}
+	if got := clientIP(mk("", "")); got != "10.9.9.9" {
+		t.Fatalf("RemoteAddr = %q", got)
+	}
+}
+
+func TestBucketsSeparadosPorIP(t *testing.T) {
+	l := NewRateLimiter(time.Minute, 1)
+	hit := func(ip string) bool {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/x", nil)
+		r.RemoteAddr = "10.9.9.9:1234"
+		r.Header.Set("X-Forwarded-For", ip)
+		return l.Allow(w, r)
+	}
+	if !hit("1.1.1.1") {
+		t.Fatal("primeiro IP deveria passar")
+	}
+	if !hit("2.2.2.2") {
+		t.Fatal("IP diferente não deveria consumir o mesmo balde")
+	}
+	if hit("1.1.1.1") {
+		t.Fatal("mesmo IP deveria bloquear no segundo hit")
+	}
+}

@@ -32,6 +32,21 @@ func (r *LogRepository) Insert(ctx context.Context, userID *string, action strin
 const logColumns = `id, user_id, action, entity_type, entity_id,
 	description, metadata, ip_address, created_at, updated_at`
 
+// ByEntity returns logs for one entity, newest-first (audit trail).
+func (r *LogRepository) ByEntity(ctx context.Context, entityType, entityID string, limit int) ([]model.SystemLog, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	q := `SELECT ` + logColumns + ` FROM system_logs
+		WHERE entity_type = $1 AND entity_id = $2
+		ORDER BY created_at DESC LIMIT $3`
+	rows, err := r.pool.Query(ctx, q, entityType, entityID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByName[model.SystemLog])
+}
+
 // List returns logs newest-first, optionally filtered by a search
 // substring over action/description (case-insensitive, like Op.iLike).
 func (r *LogRepository) List(ctx context.Context, search string, limit, offset int) ([]model.SystemLog, error) {

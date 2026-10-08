@@ -14,6 +14,7 @@ import (
 
 // ReportHandler mirrors ReportController.
 type ReportHandler struct {
+	cache     *service.Cache
 	reports   *repository.ReportRepository
 	forms     *repository.FormRepository
 	users     *repository.UserRepository
@@ -23,7 +24,7 @@ type ReportHandler struct {
 }
 
 func NewReportHandler(reports *repository.ReportRepository, forms *repository.FormRepository, users *repository.UserRepository, regions *repository.RegionRepository, logs *repository.LogRepository, campaigns *repository.CampaignRepository) *ReportHandler {
-	return &ReportHandler{reports: reports, forms: forms, users: users, regions: regions, logs: logs, campaigns: campaigns}
+	return &ReportHandler{cache: service.NewCache(60 * time.Second), reports: reports, forms: forms, users: users, regions: regions, logs: logs, campaigns: campaigns}
 }
 
 func (h *ReportHandler) AdminReport(w http.ResponseWriter, r *http.Request) {
@@ -280,6 +281,13 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "Erro interno do servidor")
 		return
 	}
+	cacheKey := "ov:" + user.ID + ":" + user.Role + ":" + q.Get("from") + ":" + q.Get("to") +
+		":" + q.Get("days") + ":" + q.Get("campaign_id") + ":" + q.Get("region_id") +
+		":" + q.Get("campaign_limit") + ":" + q.Get("campaign_offset")
+	if cached, ok := h.cache.Get(cacheKey); ok {
+		WriteJSON(w, http.StatusOK, cached)
+		return
+	}
 	rng := service.ParseDateRange(q.Get("from"), q.Get("to"))
 	var from, to *time.Time
 	if rng.HasFrom {
@@ -288,8 +296,10 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	if rng.HasTo {
 		to = &rng.To
 	}
+	campLimit, _ := strconv.Atoi(firstOr(q.Get("campaign_limit"), "50"))
+	campOffset, _ := strconv.Atoi(firstOr(q.Get("campaign_offset"), "0"))
 	byStatus, err1 := h.reports.LeadStatusCounts(ctx, ids, from, to)
-	byCampaign, err2 := h.reports.CampaignLeadStats(ctx, ids, from, to)
+	byCampaign, err2 := h.reports.CampaignLeadStats(ctx, ids, from, to, campLimit, campOffset)
 	byRegion, err3 := h.reports.RegionLeadStats(ctx, ids, from, to)
 	byState, err4 := h.reports.StateLeadStats(ctx, ids, from, to)
 	days, _ := strconv.Atoi(firstOr(q.Get("days"), "30"))
@@ -304,22 +314,27 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	for _, n := range byStatus {
 		total += n
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"totals": map[string]any{
 			"campaigns":       len(ids),
 			"leads":           total,
 			"by_status":       byStatus,
 			"conversion_rate": service.ConversionRate(byStatus["converted"], total),
 		},
-		"by_campaign": byCampaign,
-		"by_region":   repository.AttachRegionDaily(byRegion, regionDaily),
-		"by_state":    byState,
-		"by_day":      byDay,
+		"campaign_total":  len(ids),
+		"campaign_limit":  campLimit,
+		"campaign_offset": campOffset,
+		"by_campaign":     byCampaign,
+		"by_region":       repository.AttachRegionDaily(byRegion, regionDaily),
+		"by_state":        byState,
+		"by_day":          byDay,
 		"range": map[string]any{
 			"from": q.Get("from"),
 			"to":   q.Get("to"),
 		},
-	})
+	}
+	h.cache.Set(cacheKey, payload)
+	WriteJSON(w, http.StatusOK, payload)
 }
 
 func firstErr(errs ...error) error {

@@ -188,12 +188,18 @@ type CampaignLeadStat struct {
 }
 
 // CampaignLeadStats lists per-campaign lead totals with status breakdown.
-func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []string, from, to *time.Time) ([]CampaignLeadStat, error) {
+func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []string, from, to *time.Time, limit, offset int) ([]CampaignLeadStat, error) {
 	out := []CampaignLeadStat{}
 	if len(campaignIDs) == 0 {
 		return out, nil
 	}
-	rows, err := r.pool.Query(ctx, `SELECT id, title, status, objectives, region_id, NULLIF(UPPER(TRIM(address_state)), '') FROM campaigns WHERE id = ANY($1) ORDER BY created_at DESC`, campaignIDs)
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := r.pool.Query(ctx, `SELECT id, title, status, objectives, region_id, NULLIF(UPPER(TRIM(address_state)), '') FROM campaigns WHERE id = ANY($1) ORDER BY created_at DESC LIMIT $2 OFFSET $3`, campaignIDs, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +224,7 @@ func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []
 		FROM leads l
 		JOIN forms f ON f.id = l.form_id
 		WHERE f.campaign_id = ANY($1)`
-	dargs := []any{campaignIDs}
+	dargs := []any{order}
 	dateBounds(&dq, &dargs, from, to)
 	dq += ` GROUP BY f.campaign_id, l.status`
 	detail, err := r.pool.Query(ctx, dq, dargs...)
