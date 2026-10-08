@@ -284,57 +284,58 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	cacheKey := "ov:" + user.ID + ":" + user.Role + ":" + q.Get("from") + ":" + q.Get("to") +
 		":" + q.Get("days") + ":" + q.Get("campaign_id") + ":" + q.Get("region_id") +
 		":" + q.Get("campaign_limit") + ":" + q.Get("campaign_offset")
-	if cached, ok := h.cache.Get(cacheKey); ok {
-		WriteJSON(w, http.StatusOK, cached)
-		return
-	}
-	rng := service.ParseDateRange(q.Get("from"), q.Get("to"))
-	var from, to *time.Time
-	if rng.HasFrom {
-		from = &rng.From
-	}
-	if rng.HasTo {
-		to = &rng.To
-	}
-	campLimit, _ := strconv.Atoi(firstOr(q.Get("campaign_limit"), "50"))
-	campOffset, _ := strconv.Atoi(firstOr(q.Get("campaign_offset"), "0"))
-	byStatus, err1 := h.reports.LeadStatusCounts(ctx, ids, from, to)
-	byCampaign, err2 := h.reports.CampaignLeadStats(ctx, ids, from, to, campLimit, campOffset)
-	byRegion, err3 := h.reports.RegionLeadStats(ctx, ids, from, to)
-	byState, err4 := h.reports.StateLeadStats(ctx, ids, from, to)
-	days, _ := strconv.Atoi(firstOr(q.Get("days"), "30"))
-	byDay, err5 := h.reports.LeadDailyCounts(ctx, ids, days, from, to)
-	regionDaily, err6 := h.reports.RegionDailyCounts(ctx, ids, days, from, to)
-	if err := firstErr(err1, err2, err3, err4, err5, err6); err != nil {
+	val, err := h.cache.Do(cacheKey, func() (any, error) {
+		rng := service.ParseDateRange(q.Get("from"), q.Get("to"))
+		var from, to *time.Time
+		if rng.HasFrom {
+			from = &rng.From
+		}
+		if rng.HasTo {
+			to = &rng.To
+		}
+		campLimit, _ := strconv.Atoi(firstOr(q.Get("campaign_limit"), "50"))
+		campOffset, _ := strconv.Atoi(firstOr(q.Get("campaign_offset"), "0"))
+		byStatus, err1 := h.reports.LeadStatusCounts(ctx, ids, from, to)
+		byCampaign, err2 := h.reports.CampaignLeadStats(ctx, ids, from, to, campLimit, campOffset)
+		byRegion, err3 := h.reports.RegionLeadStats(ctx, ids, from, to)
+		byState, err4 := h.reports.StateLeadStats(ctx, ids, from, to)
+		days, _ := strconv.Atoi(firstOr(q.Get("days"), "30"))
+		byDay, err5 := h.reports.LeadDailyCounts(ctx, ids, days, from, to)
+		regionDaily, err6 := h.reports.RegionDailyCounts(ctx, ids, days, from, to)
+		if err := firstErr(err1, err2, err3, err4, err5, err6); err != nil {
+			return nil, err
+		}
+		total := 0
+		for _, n := range byStatus {
+			total += n
+		}
+		payload := map[string]any{
+			"totals": map[string]any{
+				"campaigns":       len(ids),
+				"leads":           total,
+				"by_status":       byStatus,
+				"conversion_rate": service.ConversionRate(byStatus["converted"], total),
+			},
+			"campaign_total":  len(ids),
+			"campaign_limit":  campLimit,
+			"campaign_offset": campOffset,
+			"by_campaign":     byCampaign,
+			"by_region":       repository.AttachRegionDaily(byRegion, regionDaily),
+			"by_state":        byState,
+			"by_day":          byDay,
+			"range": map[string]any{
+				"from": q.Get("from"),
+				"to":   q.Get("to"),
+			},
+		}
+		return payload, nil
+	})
+	if err != nil {
 		log.Printf("Erro no overview: %v", err)
 		WriteError(w, http.StatusInternalServerError, "Erro interno do servidor")
 		return
 	}
-	total := 0
-	for _, n := range byStatus {
-		total += n
-	}
-	payload := map[string]any{
-		"totals": map[string]any{
-			"campaigns":       len(ids),
-			"leads":           total,
-			"by_status":       byStatus,
-			"conversion_rate": service.ConversionRate(byStatus["converted"], total),
-		},
-		"campaign_total":  len(ids),
-		"campaign_limit":  campLimit,
-		"campaign_offset": campOffset,
-		"by_campaign":     byCampaign,
-		"by_region":       repository.AttachRegionDaily(byRegion, regionDaily),
-		"by_state":        byState,
-		"by_day":          byDay,
-		"range": map[string]any{
-			"from": q.Get("from"),
-			"to":   q.Get("to"),
-		},
-	}
-	h.cache.Set(cacheKey, payload)
-	WriteJSON(w, http.StatusOK, payload)
+	WriteJSON(w, http.StatusOK, val)
 }
 
 func firstErr(errs ...error) error {

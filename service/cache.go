@@ -12,8 +12,17 @@ type Cache struct {
 	mu        sync.Mutex
 	ttl       time.Duration
 	items     map[string]cacheItem
+	inflight  map[string]*call
 	lastSweep time.Time
 	now       func() time.Time
+}
+
+// call tracks one in-flight computation so concurrent misses for the
+// same key share a single execution (single-flight).
+type call struct {
+	wg  sync.WaitGroup
+	val any
+	err error
 }
 
 type cacheItem struct {
@@ -23,7 +32,35 @@ type cacheItem struct {
 
 // NewCache builds a store whose entries live for ttl.
 func NewCache(ttl time.Duration) *Cache {
-	return &Cache{ttl: ttl, items: map[string]cacheItem{}, now: time.Now}
+	return &Cache{ttl: ttl, items: map[string]cacheItem{}, inflight: map[string]*call{}, now: time.Now}
+}
+
+// Do returns the cached value when fresh; otherwise it runs fn exactly
+// once per key even under concurrent misses, caches successes and
+// shares the result with every waiter. Errors are never cached.
+func (c *Cache) Do(key string, fn func() (any, error)) (any, error) {
+	if v, ok := c.Get(key); ok {
+		return v, nil
+	}
+	c.mu.Lock()
+	if cl, dup := c.inflight[key]; dup {
+		c.mu.Unlock()
+		cl.wg.Wait()
+		return cl.val, cl.err
+	}
+	cl := &call{}
+	cl.wg.Add(1)
+	c.inflight[key] = cl
+	c.mu.Unlock()
+	cl.val, cl.err = fn()
+	if cl.err == nil {
+		c.Set(key, cl.val)
+	}
+	c.mu.Lock()
+	delete(c.inflight, key)
+	c.mu.Unlock()
+	cl.wg.Done()
+	return cl.val, cl.err
 }
 
 // Get returns the value when present and fresh.
