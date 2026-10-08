@@ -7,9 +7,8 @@ import (
 	"igb-leads-go/repository"
 )
 
-// SyncTemplates ports the boot fixTemplateEmojis: every default-keyed
-// template whose content differs (corrupted or edited) is reset to the
-// current default. Aggressive like Node, by design.
+// SyncTemplates heals corrupted emojis at boot. Team edits are never
+// reverted: outdated defaults refresh only via seed-defaults.
 func SyncTemplates(ctx context.Context, campaigns *repository.CampaignRepository, templates *repository.TemplateRepository) {
 	rows, err := campaigns.IDsAndObjectives(ctx)
 	if err != nil {
@@ -27,7 +26,7 @@ func SyncTemplates(ctx context.Context, campaigns *repository.CampaignRepository
 			if err != nil {
 				continue
 			}
-			if HasCorruptedEmojis(tpl.Content) || tpl.Content != def.Content {
+			if HasCorruptedEmojis(tpl.Content) {
 				if err := templates.UpdateFields(ctx, tpl.ID, map[string]any{"content": def.Content}); err != nil {
 					log.Printf("❌ Erro ao corrigir template %s: %v", tpl.ID, err)
 					continue

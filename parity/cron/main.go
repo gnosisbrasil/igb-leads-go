@@ -44,7 +44,8 @@ func main() {
 	schedules := repository.NewScheduleRepository(pool)
 	wa := service.NewWhatsAppClient(cfg.MeowURL, cfg.MeowAPIKey, cfg.MeowSession)
 	emailSvc := service.NewEmailService(cfg)
-	auto := service.NewAutoRelationship(leads, forms, campaigns, templates, wa, cfg.FrontendURL, cfg.APIURL)
+	regions := repository.NewRegionRepository(pool)
+	auto := service.NewAutoRelationship(leads, forms, campaigns, templates, regions, wa, cfg.FrontendURL, cfg.APIURL)
 	sched := jobs.NewScheduler(schedules, campaigns, forms, leads, users, emailSvc, auto)
 
 	meowCalls := func() int {

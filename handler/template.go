@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"igb-leads-go/authctx"
 	"igb-leads-go/config"
 	"igb-leads-go/model"
 	"igb-leads-go/repository"
@@ -29,10 +30,44 @@ func NewTemplateHandler(cfg *config.Config, templates *repository.TemplateReposi
 	return &TemplateHandler{cfg: cfg, templates: templates, leads: leads, forms: forms, campaigns: campaigns, whatsapp: whatsapp}
 }
 
+// scopedCampaign loads the campaign and enforces team scope: admins see
+// all, supervisors their region, others their own/traffic campaigns.
+func (h *TemplateHandler) scopedCampaign(r *http.Request, campaignID string) (*model.Campaign, bool) {
+	user := authctx.CurrentUser(r)
+	if user == nil {
+		return nil, false
+	}
+	campaign, err := h.campaigns.ByID(r.Context(), campaignID)
+	if err != nil {
+		return nil, false
+	}
+	switch user.Role {
+	case model.RoleAdmin:
+		return campaign, true
+	case model.RoleSupervisor:
+		if user.RegionID != nil && campaign.RegionID != nil && *user.RegionID == *campaign.RegionID {
+			return campaign, true
+		}
+	case model.RoleExecutive:
+		if campaign.TrafficManagerID != nil && *campaign.TrafficManagerID == user.ID {
+			return campaign, true
+		}
+	case model.RoleUser:
+		if campaign.UserID == user.ID {
+			return campaign, true
+		}
+	}
+	return campaign, false
+}
+
 func (h *TemplateHandler) List(w http.ResponseWriter, r *http.Request) {
 	campaignID := r.URL.Query().Get("campaign_id")
 	if campaignID == "" {
 		WriteError(w, http.StatusBadRequest, "campaign_id é obrigatório")
+		return
+	}
+	if _, ok := h.scopedCampaign(r, campaignID); !ok {
+		WriteError(w, http.StatusForbidden, "Sem permissão para esta campanha")
 		return
 	}
 	tpls, err := h.templates.ByCampaign(r.Context(), campaignID)
@@ -69,6 +104,10 @@ func (h *TemplateHandler) Create(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "Corpo inválido")
 		return
 	}
+	if _, ok := h.scopedCampaign(r, body.CampaignID); !ok {
+		WriteError(w, http.StatusForbidden, "Sem permissão para esta campanha")
+		return
+	}
 	if body.Phase == "" {
 		body.Phase = "general"
 	}
@@ -93,8 +132,8 @@ func (h *TemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, "Template não encontrado")
 		return
 	}
-	if !tpl.IsEditable {
-		WriteError(w, http.StatusForbidden, "Templates padrão não podem ser editados")
+	if _, ok := h.scopedCampaign(r, tpl.CampaignID); !ok {
+		WriteError(w, http.StatusForbidden, "Sem permissão para esta campanha")
 		return
 	}
 	var body map[string]any
@@ -130,6 +169,10 @@ func (h *TemplateHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	if !tpl.IsEditable {
 		WriteError(w, http.StatusForbidden, "Templates padrão não podem ser removidos")
+		return
+	}
+	if _, ok := h.scopedCampaign(r, tpl.CampaignID); !ok {
+		WriteError(w, http.StatusForbidden, "Sem permissão para esta campanha")
 		return
 	}
 	if err := h.templates.Delete(r.Context(), tpl.ID); err != nil {
@@ -236,6 +279,10 @@ func (h *TemplateHandler) SeedDefaults(w http.ResponseWriter, r *http.Request) {
 	campaign, err := h.campaigns.ByID(r.Context(), r.PathValue("campaign_id"))
 	if err != nil {
 		WriteError(w, http.StatusNotFound, "Campanha não encontrada")
+		return
+	}
+	if _, ok := h.scopedCampaign(r, campaign.ID); !ok {
+		WriteError(w, http.StatusForbidden, "Sem permissão para esta campanha")
 		return
 	}
 	objectives := ""

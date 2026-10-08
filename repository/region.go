@@ -21,7 +21,8 @@ func NewRegionRepository(pool *pgxpool.Pool) *RegionRepository {
 
 const regionColumns = `id, name, code, country, description, is_active,
 	created_at, updated_at, type, states, ibge_state_code, ibge_city_codes,
-	cities, geo_bounds, center_lat, center_lng, parent_region_id`
+	cities, geo_bounds, center_lat, center_lng, parent_region_id,
+	whatsapp_session, whatsapp_phone, whatsapp_connected_at`
 
 func (r *RegionRepository) List(ctx context.Context, onlyActive *bool) ([]model.Region, error) {
 	q := `SELECT ` + regionColumns + ` FROM regions`
@@ -109,6 +110,14 @@ func (r *RegionRepository) Update(ctx context.Context, g *model.Region) error {
 
 func (r *RegionRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM regions WHERE id = $1`, id)
+	return err
+}
+
+// UpdateWhatsApp persists the team's meow session binding.
+func (r *RegionRepository) UpdateWhatsApp(ctx context.Context, id string, session, phone *string, connectedAt *time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE regions SET whatsapp_session = $1,
+		whatsapp_phone = $2, whatsapp_connected_at = $3, updated_at = $4 WHERE id = $5`,
+		session, phone, connectedAt, time.Now(), id)
 	return err
 }
 

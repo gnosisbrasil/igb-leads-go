@@ -36,13 +36,24 @@ type AutoRelationship struct {
 	forms     *repository.FormRepository
 	campaigns *repository.CampaignRepository
 	templates *repository.TemplateRepository
+	regions   *repository.RegionRepository
 	wa        *WhatsAppClient
 	frontend  string
 	apiURL    string
 }
 
-func NewAutoRelationship(leads *repository.LeadRepository, forms *repository.FormRepository, campaigns *repository.CampaignRepository, templates *repository.TemplateRepository, wa *WhatsAppClient, frontendURL, apiURL string) *AutoRelationship {
-	return &AutoRelationship{leads: leads, forms: forms, campaigns: campaigns, templates: templates, wa: wa, frontend: frontendURL, apiURL: apiURL}
+func NewAutoRelationship(leads *repository.LeadRepository, forms *repository.FormRepository, campaigns *repository.CampaignRepository, templates *repository.TemplateRepository, regions *repository.RegionRepository, wa *WhatsAppClient, frontendURL, apiURL string) *AutoRelationship {
+	return &AutoRelationship{leads: leads, forms: forms, campaigns: campaigns, templates: templates, regions: regions, wa: wa, frontend: frontendURL, apiURL: apiURL}
+}
+
+// sessionFor resolves the team's meow session, falling back to default.
+func (a *AutoRelationship) sessionFor(ctx context.Context, campaign *model.Campaign) string {
+	if campaign.RegionID != nil && a.regions != nil {
+		if reg, err := a.regions.ByID(ctx, *campaign.RegionID); err == nil && reg.WhatsappSession != nil && *reg.WhatsappSession != "" {
+			return *reg.WhatsappSession
+		}
+	}
+	return a.wa.DefaultSession()
 }
 
 func (a *AutoRelationship) campaignOf(ctx context.Context, lead *model.Lead) *model.Campaign {
@@ -89,7 +100,7 @@ func (a *AutoRelationship) sendTemplate(ctx context.Context, lead *model.Lead, c
 	}
 	message := SubstitutePatterns(tpl.Content, lead, campaign, tpl.Key, a.frontend, a.apiURL)
 	phone := "55" + DigitsOnly(lead.Whatsapp)
-	return a.wa.SendText(phone, message)
+	return a.wa.SendTextTo(a.sessionFor(ctx, campaign), phone, message)
 }
 
 func (a *AutoRelationship) stamp(ctx context.Context, leadID, column string) {

@@ -223,14 +223,17 @@ type Notification struct {
 }
 
 type Region struct {
-	ID             string    `db:"id" json:"id"`
-	Name           string    `db:"name" json:"name"`
-	Code           string    `db:"code" json:"code"`
-	Description    *string   `db:"description" json:"description"`
-	IsActive       bool      `db:"is_active" json:"is_active"`
-	CreatedAt      time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
-	ParentRegionID *string   `db:"parent_region_id" json:"parent_region_id"`
+	ID                  string     `db:"id" json:"id"`
+	Name                string     `db:"name" json:"name"`
+	Code                string     `db:"code" json:"code"`
+	Description         *string    `db:"description" json:"description"`
+	IsActive            bool       `db:"is_active" json:"is_active"`
+	CreatedAt           time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt           time.Time  `db:"updated_at" json:"updated_at"`
+	ParentRegionID      *string    `db:"parent_region_id" json:"parent_region_id"`
+	WhatsappSession     *string    `db:"whatsapp_session" json:"whatsapp_session"`
+	WhatsappPhone       *string    `db:"whatsapp_phone" json:"whatsapp_phone"`
+	WhatsappConnectedAt *time.Time `db:"whatsapp_connected_at" json:"whatsapp_connected_at"`
 	// Below: real DB columns the Node API never exposes (its Region model
 	// only knows the fields above plus the parent_region_id FK added by the
 	// self belongsTo association). Kept mapped for future use.

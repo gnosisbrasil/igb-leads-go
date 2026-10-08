@@ -67,7 +67,7 @@ func main() {
 	captcha := service.NewCaptchaVerifier(cfg.TurnstileSecret, cfg.NodeEnv)
 	email := service.NewEmailService(cfg)
 	whatsapp := service.NewWhatsAppClient(cfg.MeowURL, cfg.MeowAPIKey, cfg.MeowSession)
-	auto := service.NewAutoRelationship(leads, forms, campaigns, templates, whatsapp, cfg.FrontendURL, cfg.APIURL)
+	auto := service.NewAutoRelationship(leads, forms, campaigns, templates, regions, whatsapp, cfg.FrontendURL, cfg.APIURL)
 	efi := service.NewEfiClient(service.EfiConfig{
 		ClientID: cfg.EfiClientID, ClientSecret: cfg.EfiClientSecret,
 		CertBase64: cfg.EfiCertBase64, PixKey: cfg.EfiPixKey,
@@ -87,6 +87,7 @@ func main() {
 	notificationHandler := handler.NewNotificationHandler(notify)
 	uploadHandler := handler.NewUploadHandler(cfg, uploads)
 	templateHandler := handler.NewTemplateHandler(cfg, templates, leads, forms, campaigns, whatsapp)
+	waHandler := handler.NewWhatsAppHandler(cfg, regions, templates, campaigns, leads, whatsapp)
 
 	auth := middleware.Auth(users, tokens)
 	role := middleware.RoleCheck
@@ -151,6 +152,10 @@ func main() {
 	mux.Handle("PUT /api/regions/{id}", chain(http.HandlerFunc(regionHandler.Update), auth, adminOnly))
 	mux.Handle("DELETE /api/regions/{id}", chain(http.HandlerFunc(regionHandler.Delete), auth, adminOnly))
 	mux.Handle("POST /api/regions/{id}/assign-supervisor", chain(http.HandlerFunc(regionHandler.AssignSupervisor), auth, adminOnly))
+	mux.Handle("GET /api/regions/{id}/whatsapp/status", chain(http.HandlerFunc(waHandler.Status), auth))
+	mux.Handle("GET /api/regions/{id}/whatsapp/qr", chain(http.HandlerFunc(waHandler.QR), auth))
+	mux.Handle("POST /api/regions/{id}/whatsapp/disconnect", chain(http.HandlerFunc(waHandler.Disconnect), auth))
+	mux.Handle("POST /api/message-templates/test-send", chain(http.HandlerFunc(waHandler.TestSend), auth))
 
 	// Campaigns (mirrors campaigns.routes.js). Public first.
 	mux.HandleFunc("POST /api/campaigns/public/{token}/leads", publicHandler.GetLeads)
