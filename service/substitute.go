@@ -44,6 +44,15 @@ func strptr(s *string) string {
 	return *s
 }
 
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 var tipoEventoLabels = map[string]string{
 	"camara_publica":  "Câmara Pública",
 	"workshop":        "Workshop",
@@ -121,11 +130,15 @@ func eventDatesText(c *model.Campaign) string {
 }
 
 func weekdaysText(c *model.Campaign) string {
-	if len(c.Weekdays) == 0 {
+	return weekdaysRawText(c.Weekdays)
+}
+
+func weekdaysRawText(data json.RawMessage) string {
+	if len(data) == 0 {
 		return ""
 	}
 	var raw []any
-	if err := json.Unmarshal(c.Weekdays, &raw); err != nil || len(raw) == 0 {
+	if err := json.Unmarshal(data, &raw); err != nil || len(raw) == 0 {
 		return ""
 	}
 	dayName := func(d string) string {
@@ -183,6 +196,90 @@ func weekdaysText(c *model.Campaign) string {
 		}
 	}
 	return strings.Join(days, ", ")
+}
+
+type turmaSchedule struct {
+	Title     string          `json:"title"`
+	EventDate string          `json:"event_date"`
+	EventTime string          `json:"event_time"`
+	Weekdays  json.RawMessage `json:"weekdays"`
+}
+
+func parseTurmas(data json.RawMessage) []turmaSchedule {
+	if len(data) == 0 {
+		return nil
+	}
+	var out []turmaSchedule
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	kept := out[:0]
+	for _, t := range out {
+		if strings.TrimSpace(t.Title) != "" {
+			kept = append(kept, t)
+		}
+	}
+	return kept
+}
+
+func leadTurmaName(lead *model.Lead) string {
+	if lead == nil || len(lead.Metadata) == 0 {
+		return ""
+	}
+	var meta struct {
+		Turma string `json:"turma"`
+	}
+	if err := json.Unmarshal(lead.Metadata, &meta); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(meta.Turma)
+}
+
+func turmaDateBR(date string) string {
+	if date == "" {
+		return ""
+	}
+	if t, err := ParseEventDate(date); err == nil {
+		return FormatDateBR(t)
+	}
+	return date
+}
+
+// turmaTexts resolves date/time/name/weekdays from the campaign turmas.
+// The lead's own turma wins; a single turma is used directly; with
+// several turmas and no match every option is listed so the message
+// never goes out with blank date/time.
+func turmaTexts(campaign *model.Campaign, lead *model.Lead) (date, time, name, weekdays string) {
+	turmas := parseTurmas(campaign.Turmas)
+	if len(turmas) == 0 {
+		return "", "", "", ""
+	}
+	want := strings.ToLower(leadTurmaName(lead))
+	if want != "" {
+		for _, t := range turmas {
+			if strings.ToLower(strings.TrimSpace(t.Title)) == want {
+				return turmaDateBR(t.EventDate), strings.TrimSpace(t.EventTime), strings.TrimSpace(t.Title), weekdaysRawText(t.Weekdays)
+			}
+		}
+	}
+	if len(turmas) == 1 {
+		t := turmas[0]
+		return turmaDateBR(t.EventDate), strings.TrimSpace(t.EventTime), strings.TrimSpace(t.Title), weekdaysRawText(t.Weekdays)
+	}
+	dates, times, names := []string{}, []string{}, []string{}
+	seenTime := map[string]bool{}
+	for _, t := range turmas {
+		title := strings.TrimSpace(t.Title)
+		names = append(names, title)
+		if d := turmaDateBR(t.EventDate); d != "" {
+			dates = append(dates, title+": "+d)
+		}
+		if tm := strings.TrimSpace(t.EventTime); tm != "" && !seenTime[tm] {
+			seenTime[tm] = true
+			times = append(times, tm)
+		}
+	}
+	return strings.Join(dates, ", "), strings.Join(times, ", "), strings.Join(names, ", "), ""
 }
 
 // SubstitutePatterns mirrors MessageTemplateController.substitutePatterns.
@@ -246,9 +343,11 @@ func SubstitutePatterns(content string, lead *model.Lead, campaign *model.Campai
 		values["{{bairro}}"] = strptr(campaign.AddressNeighborhood)
 		values["{{endereco_completo}}"] = fullAddress(campaign)
 		values["{{google_maps_link}}"] = strptr(campaign.GoogleMapsLink)
-		values["{{data_evento}}"] = eventDatesText(campaign)
-		values["{{hora_evento}}"] = strptr(campaign.EventTime)
-		values["{{dias_semana}}"] = weekdaysText(campaign)
+		dateText, timeText, turmaName, turmaWeekdays := turmaTexts(campaign, lead)
+		values["{{turma}}"] = turmaName
+		values["{{data_evento}}"] = firstNonEmpty(eventDatesText(campaign), dateText)
+		values["{{hora_evento}}"] = firstNonEmpty(strptr(campaign.EventTime), timeText)
+		values["{{dias_semana}}"] = firstNonEmpty(weekdaysText(campaign), turmaWeekdays)
 	}
 	// Patterns referencing a nil side resolve to empty, like Node's
 	// `value || ''` on undefined.

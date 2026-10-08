@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -132,5 +133,39 @@ func TestConversionRateString(t *testing.T) {
 	}
 	if got := ConversionRateString(1, 3); got != "33.33" {
 		t.Fatalf("1/3: got %#v", got)
+	}
+}
+
+func TestSubstituteTurmaDates(t *testing.T) {
+	turmas := json.RawMessage(`[{"title":"Turma 1","event_date":"2026-05-25","event_time":"20:00","weekdays":[{"day":"seg","time":"20:00"},{"day":"qua","time":"20:30"}]},{"title":"Turma 2","event_date":"2026-05-26","event_time":"19:00","weekdays":[]}]`)
+	campaign := &model.Campaign{Title: "Curso", Objectives: strp("primeira_camara"), Turmas: turmas}
+	lead := &model.Lead{FirstName: "A", LastName: "B", Metadata: json.RawMessage(`{"turma":"Turma 1"}`)}
+	got := SubstitutePatterns("{{turma}} | {{data_evento}} | {{hora_evento}} | {{dias_semana}}", lead, campaign, "", "", "")
+	want := "Turma 1 | 25/05/2026 | 20:00 | Segunda às 20:00, Quarta às 20:30"
+	if got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+}
+
+func TestSubstituteTurmaSemMatchListaTodas(t *testing.T) {
+	turmas := json.RawMessage(`[{"title":"Turma 1","event_date":"2026-05-25","event_time":"20:00"},{"title":"Turma 2","event_date":"2026-05-26","event_time":"19:00"}]`)
+	campaign := &model.Campaign{Title: "Curso", Objectives: strp("primeira_camara"), Turmas: turmas}
+	got := SubstitutePatterns("{{turma}} | {{data_evento}} | {{hora_evento}}", &model.Lead{FirstName: "A"}, campaign, "", "", "")
+	want := "Turma 1, Turma 2 | Turma 1: 25/05/2026, Turma 2: 26/05/2026 | 20:00, 19:00"
+	if got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+}
+
+func TestSubstituteDatasGeraisTemPrioridade(t *testing.T) {
+	turmas := json.RawMessage(`[{"title":"Turma 1","event_date":"2026-05-25","event_time":"20:00"}]`)
+	campaign := &model.Campaign{
+		Title: "Curso", Objectives: strp("primeira_camara"), Turmas: turmas,
+		EventDates: json.RawMessage(`[{"date":"2026-06-01","time":"10:00"}]`), EventTime: strp("10:00"),
+	}
+	got := SubstitutePatterns("{{data_evento}} | {{hora_evento}}", &model.Lead{FirstName: "A"}, campaign, "", "", "")
+	want := "01/06/2026 às 10:00 | 10:00"
+	if got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
 	}
 }
