@@ -291,9 +291,10 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	byStatus, err1 := h.reports.LeadStatusCounts(ctx, ids, from, to)
 	byCampaign, err2 := h.reports.CampaignLeadStats(ctx, ids, from, to)
 	byRegion, err3 := h.reports.RegionLeadStats(ctx, ids, from, to)
+	byState, err4 := h.reports.StateLeadStats(ctx, ids, from, to)
 	days, _ := strconv.Atoi(firstOr(q.Get("days"), "30"))
-	byDay, err4 := h.reports.LeadDailyCounts(ctx, ids, days, from, to)
-	if err := firstErr(err1, err2, err3, err4); err != nil {
+	byDay, err5 := h.reports.LeadDailyCounts(ctx, ids, days, from, to)
+	if err := firstErr(err1, err2, err3, err4, err5); err != nil {
 		log.Printf("Erro no overview: %v", err)
 		WriteError(w, http.StatusInternalServerError, "Erro interno do servidor")
 		return
@@ -311,6 +312,7 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 		},
 		"by_campaign": byCampaign,
 		"by_region":   byRegion,
+		"by_state":    byState,
 		"by_day":      byDay,
 		"range": map[string]any{
 			"from": q.Get("from"),

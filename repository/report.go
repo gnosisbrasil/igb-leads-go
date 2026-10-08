@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -181,6 +182,7 @@ type CampaignLeadStat struct {
 	Status     string         `json:"status"`
 	Objectives *string        `json:"objectives"`
 	RegionID   *string        `json:"region_id"`
+	State      *string        `json:"state"`
 	Leads      int            `json:"leads"`
 	ByStatus   map[string]int `json:"by_status"`
 }
@@ -191,7 +193,7 @@ func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []
 	if len(campaignIDs) == 0 {
 		return out, nil
 	}
-	rows, err := r.pool.Query(ctx, `SELECT id, title, status, objectives, region_id FROM campaigns WHERE id = ANY($1) ORDER BY created_at DESC`, campaignIDs)
+	rows, err := r.pool.Query(ctx, `SELECT id, title, status, objectives, region_id, NULLIF(UPPER(TRIM(address_state)), '') FROM campaigns WHERE id = ANY($1) ORDER BY created_at DESC`, campaignIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +201,7 @@ func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []
 	order := []string{}
 	for rows.Next() {
 		var s CampaignLeadStat
-		if err := rows.Scan(&s.ID, &s.Title, &s.Status, &s.Objectives, &s.RegionID); err != nil {
+		if err := rows.Scan(&s.ID, &s.Title, &s.Status, &s.Objectives, &s.RegionID, &s.State); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -282,6 +284,85 @@ func (r *ReportRepository) RegionLeadStats(ctx context.Context, campaignIDs []st
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// StateLeadStat is one row of the per-state (UF) breakdown.
+type StateLeadStat struct {
+	State     string         `json:"state"`
+	Campaigns int            `json:"campaigns"`
+	Leads     int            `json:"leads"`
+	ByStatus  map[string]int `json:"by_status"`
+}
+
+// StateLeadStats groups campaign and lead counts by campaign state (UF),
+// ignoring campaigns without a state.
+func (r *ReportRepository) StateLeadStats(ctx context.Context, campaignIDs []string, from, to *time.Time) ([]StateLeadStat, error) {
+	out := []StateLeadStat{}
+	if len(campaignIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT NULLIF(UPPER(TRIM(c.address_state)), ''), COUNT(DISTINCT c.id)
+		FROM campaigns c
+		WHERE c.id = ANY($1)
+		GROUP BY 1`, campaignIDs)
+	if err != nil {
+		return nil, err
+	}
+	stats := map[string]*StateLeadStat{}
+	for rows.Next() {
+		var uf *string
+		var n int
+		if err := rows.Scan(&uf, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if uf == nil || *uf == "" {
+			continue
+		}
+		stats[*uf] = &StateLeadStat{State: *uf, Campaigns: n, ByStatus: map[string]int{}}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	dq := `
+		SELECT NULLIF(UPPER(TRIM(c.address_state)), ''), l.status, COUNT(*)
+		FROM leads l
+		JOIN forms f ON f.id = l.form_id
+		JOIN campaigns c ON c.id = f.campaign_id
+		WHERE f.campaign_id = ANY($1)`
+	dargs := []any{campaignIDs}
+	dateBounds(&dq, &dargs, from, to)
+	dq += ` GROUP BY 1, 2`
+	detail, err := r.pool.Query(ctx, dq, dargs...)
+	if err != nil {
+		return nil, err
+	}
+	defer detail.Close()
+	for detail.Next() {
+		var uf *string
+		var status string
+		var n int
+		if err := detail.Scan(&uf, &status, &n); err != nil {
+			return nil, err
+		}
+		if uf == nil || *uf == "" {
+			continue
+		}
+		if s, ok := stats[*uf]; ok {
+			s.ByStatus[status] = n
+			s.Leads += n
+		}
+	}
+	if err := detail.Err(); err != nil {
+		return nil, err
+	}
+	for _, s := range stats {
+		out = append(out, *s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Leads > out[j].Leads })
+	return out, nil
 }
 
 // DailyLeadCount is one row of the signups-per-day series.
