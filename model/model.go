@@ -112,6 +112,7 @@ type Campaign struct {
 	TemplateConfig          json.RawMessage `db:"template_config" json:"template_config"`
 	Products                json.RawMessage `db:"products" json:"products"`
 	SnackPrice              *string         `db:"snack_price" json:"snack_price"`
+	GoalLeads               *int            `db:"goal_leads" json:"goal_leads"`
 }
 
 type CampaignDetail struct {

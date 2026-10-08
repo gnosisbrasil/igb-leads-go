@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"time"
 
 	"igb-leads-go/model"
 )
@@ -65,4 +66,27 @@ func CampaignInScope(scope ReportScope, campaignRegionID *string, ownerID string
 		return false
 	}
 	return true
+}
+
+// DateRange bounds lead aggregates. From is inclusive, To is exclusive
+// (callers add a day to include the whole end date).
+type DateRange struct {
+	From, To       time.Time
+	HasFrom, HasTo bool
+}
+
+// ParseDateRange parses YYYY-MM-DD bounds. Empty or invalid values mean
+// unbounded on that side; a inverted range swaps to stay valid.
+func ParseDateRange(fromStr, toStr string) DateRange {
+	var r DateRange
+	if t, err := time.Parse("2006-01-02", fromStr); err == nil {
+		r.From, r.HasFrom = t, true
+	}
+	if t, err := time.Parse("2006-01-02", toStr); err == nil {
+		r.To, r.HasTo = t.Add(24*time.Hour), true
+	}
+	if r.HasFrom && r.HasTo && !r.From.Before(r.To) {
+		r.From, r.To = r.To.Add(-24*time.Hour), r.From.Add(24*time.Hour)
+	}
+	return r
 }

@@ -34,7 +34,7 @@ const campaignColumns = `id, title, description, status, budget, platform,
 	payment_url, display_id, rejection_reason, event_time, weekdays, event_dates,
 	google_maps_link, lp_template, pending_edit, turmas, auto_relationship,
 	auto_relationship_cost, accepted_at, responsible_name, responsible_whatsapp,
-	template_config, products, snack_price`
+	template_config, products, snack_price, goal_leads`
 
 func (r *CampaignRepository) ByID(ctx context.Context, id string) (*model.Campaign, error) {
 	rows, err := r.pool.Query(ctx, `SELECT `+campaignColumns+` FROM campaigns WHERE id = $1`, id)
@@ -110,6 +110,7 @@ func (r *CampaignRepository) Create(ctx context.Context, c *model.Campaign) erro
 		{"accepted_at", c.AcceptedAt}, {"responsible_name", c.ResponsibleName},
 		{"responsible_whatsapp", c.ResponsibleWhatsapp}, {"template_config", nullJSON(c.TemplateConfig)},
 		{"products", nullJSON(c.Products)}, {"snack_price", c.SnackPrice},
+		{"goal_leads", c.GoalLeads},
 	}
 	cols := make([]string, 0, len(pairs))
 	holders := make([]string, 0, len(pairs))
@@ -150,7 +151,7 @@ var campaignUpdatable = map[string]bool{
 	"rejection_reason": true, "event_time": true, "weekdays": true, "event_dates": true,
 	"google_maps_link": true, "lp_template": true, "pending_edit": true, "turmas": true,
 	"auto_relationship": true, "auto_relationship_cost": true, "accepted_at": true,
-	"responsible_name": true, "responsible_whatsapp": true, "template_config": true,
+	"responsible_name": true, "responsible_whatsapp": true, "template_config": true, "goal_leads": true,
 	"products": true, "snack_price": true,
 }
 

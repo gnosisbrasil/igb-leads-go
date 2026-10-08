@@ -103,3 +103,25 @@ func TestCampaignInScope(t *testing.T) {
 		t.Fatal("nao-dono deve rejeitar")
 	}
 }
+
+func TestParseDateRange(t *testing.T) {
+	r := ParseDateRange("2026-01-10", "2026-01-12")
+	if !r.HasFrom || !r.HasTo {
+		t.Fatal("deveria ter ambos os limites")
+	}
+	if r.From.Day() != 10 || r.To.Day() != 13 {
+		t.Fatalf("limites errados: %v %v", r.From, r.To)
+	}
+	r = ParseDateRange("", "")
+	if r.HasFrom || r.HasTo {
+		t.Fatal("vazio deveria ser ilimitado")
+	}
+	r = ParseDateRange("invalida", "2026-01-12")
+	if r.HasFrom || !r.HasTo {
+		t.Fatal("from invalido deveria ser ignorado")
+	}
+	r = ParseDateRange("2026-01-12", "2026-01-10")
+	if !r.From.Before(r.To) {
+		t.Fatal("range invertido deveria normalizar")
+	}
+}

@@ -30,12 +30,54 @@ var allowedUpdateFields = []string{
 	"whatsapp_confirmation_msg", "whatsapp_voucher_msg",
 	"form_header_text", "form_cta_text",
 	"responsible_name", "responsible_whatsapp",
-	"template_config",
+	"template_config", "goal_leads",
 }
 
 var jsonbUpdateFields = map[string]bool{
 	"weekdays": true, "event_dates": true, "turmas": true,
 	"form_fields": true, "template_config": true,
+}
+
+// Goal updates the lead goal of a campaign at any status.
+// Allowed: owner, traffic manager, admin.
+func (h *CampaignHandler) Goal(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		GoalLeads *int `json:"goal_leads"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		WriteError(w, http.StatusBadRequest, "Corpo inválido")
+		return
+	}
+	if body.GoalLeads != nil && *body.GoalLeads < 0 {
+		WriteError(w, http.StatusBadRequest, "Meta inválida")
+		return
+	}
+	id := r.PathValue("id")
+	c, err := h.campaigns.ByID(r.Context(), id)
+	if err != nil {
+		WriteAppError(w, service.NotFound("Campanha não encontrada"), "Erro ao salvar meta")
+		return
+	}
+	user := authctx.CurrentUser(r)
+	isTraffic := c.TrafficManagerID != nil && *c.TrafficManagerID == user.ID
+	if c.UserID != user.ID && !isTraffic && user.Role != model.RoleAdmin {
+		WriteAppError(w, service.Forbidden(""), "Erro ao salvar meta")
+		return
+	}
+	fields := map[string]any{"goal_leads": nil}
+	if body.GoalLeads != nil {
+		fields["goal_leads"] = *body.GoalLeads
+	}
+	if err := h.campaigns.UpdateFields(r.Context(), id, fields); err != nil {
+		WriteAppError(w, err, "Erro ao salvar meta")
+		return
+	}
+	updated, err := h.campaigns.ByID(r.Context(), id)
+	if err != nil {
+		WriteAppError(w, err, "Erro ao salvar meta")
+		return
+	}
+	WriteJSON(w, http.StatusOK, updated)
 }
 
 func (h *CampaignHandler) Update(w http.ResponseWriter, r *http.Request) {

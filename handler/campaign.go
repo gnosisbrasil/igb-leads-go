@@ -329,6 +329,10 @@ func (h *CampaignHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if v := getStr("platform"); v != "" {
 		c.Platform = v
 	}
+	if n, ok := raw["goal_leads"].(float64); ok && n > 0 {
+		g := int(n)
+		c.GoalLeads = &g
+	}
 	for _, dk := range []string{"start_date", "end_date", "event_date"} {
 		if v := getStr(dk); v != "" {
 			t, err := time.Parse(time.RFC3339, v)

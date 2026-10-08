@@ -173,6 +173,7 @@ func main() {
 	mux.Handle("GET /api/campaigns/{id}/health", chain(http.HandlerFunc(campaignHandler.Health), auth))
 	mux.Handle("POST /api/campaigns", chain(http.HandlerFunc(campaignHandler.Create), auth))
 	mux.Handle("PUT /api/campaigns/{id}", chain(http.HandlerFunc(campaignHandler.Update), auth))
+	mux.Handle("PUT /api/campaigns/{id}/goal", chain(http.HandlerFunc(campaignHandler.Goal), auth))
 	mux.Handle("DELETE /api/campaigns/{id}", chain(http.HandlerFunc(campaignHandler.Delete), auth))
 	mux.Handle("POST /api/campaigns/{id}/submit", chain(http.HandlerFunc(campaignHandler.Submit), auth))
 	mux.Handle("POST /api/campaigns/{id}/mark-paid", chain(http.HandlerFunc(campaignHandler.MarkAsPaid), auth, adminOnly))

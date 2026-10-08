@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -130,18 +131,34 @@ func (r *ReportRepository) CampaignIDsFiltered(ctx context.Context, campaignID, 
 	return out, rows.Err()
 }
 
+// dateBounds appends created_at bounds to a leads query. From is inclusive,
+// To is exclusive. Table alias for leads must be "l".
+func dateBounds(q *string, args *[]any, from, to *time.Time) {
+	if from != nil {
+		*args = append(*args, *from)
+		*q += ` AND l.created_at >= $` + itoa(len(*args))
+	}
+	if to != nil {
+		*args = append(*args, *to)
+		*q += ` AND l.created_at < $` + itoa(len(*args))
+	}
+}
+
 // LeadStatusCounts groups lead counts by status for the given campaigns.
-func (r *ReportRepository) LeadStatusCounts(ctx context.Context, campaignIDs []string) (map[string]int, error) {
+func (r *ReportRepository) LeadStatusCounts(ctx context.Context, campaignIDs []string, from, to *time.Time) (map[string]int, error) {
 	out := map[string]int{}
 	if len(campaignIDs) == 0 {
 		return out, nil
 	}
-	rows, err := r.pool.Query(ctx, `
+	q := `
 		SELECT l.status, COUNT(*)
 		FROM leads l
 		JOIN forms f ON f.id = l.form_id
-		WHERE f.campaign_id = ANY($1)
-		GROUP BY l.status`, campaignIDs)
+		WHERE f.campaign_id = ANY($1)`
+	args := []any{campaignIDs}
+	dateBounds(&q, &args, from, to)
+	q += ` GROUP BY l.status`
+	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +186,7 @@ type CampaignLeadStat struct {
 }
 
 // CampaignLeadStats lists per-campaign lead totals with status breakdown.
-func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []string) ([]CampaignLeadStat, error) {
+func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []string, from, to *time.Time) ([]CampaignLeadStat, error) {
 	out := []CampaignLeadStat{}
 	if len(campaignIDs) == 0 {
 		return out, nil
@@ -194,12 +211,15 @@ func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	detail, err := r.pool.Query(ctx, `
+	dq := `
 		SELECT f.campaign_id, l.status, COUNT(*)
 		FROM leads l
 		JOIN forms f ON f.id = l.form_id
-		WHERE f.campaign_id = ANY($1)
-		GROUP BY f.campaign_id, l.status`, campaignIDs)
+		WHERE f.campaign_id = ANY($1)`
+	dargs := []any{campaignIDs}
+	dateBounds(&dq, &dargs, from, to)
+	dq += ` GROUP BY f.campaign_id, l.status`
+	detail, err := r.pool.Query(ctx, dq, dargs...)
 	if err != nil {
 		return nil, err
 	}
@@ -233,19 +253,23 @@ type RegionLeadStat struct {
 }
 
 // RegionLeadStats groups campaign and lead counts by region.
-func (r *ReportRepository) RegionLeadStats(ctx context.Context, campaignIDs []string) ([]RegionLeadStat, error) {
+func (r *ReportRepository) RegionLeadStats(ctx context.Context, campaignIDs []string, from, to *time.Time) ([]RegionLeadStat, error) {
 	out := []RegionLeadStat{}
 	if len(campaignIDs) == 0 {
 		return out, nil
 	}
-	rows, err := r.pool.Query(ctx, `
+	q := `
 		SELECT g.id, g.name, COUNT(DISTINCT c.id), COUNT(l.id)
 		FROM regions g
 		JOIN campaigns c ON c.region_id = g.id AND c.id = ANY($1)
 		LEFT JOIN forms f ON f.campaign_id = c.id
-		LEFT JOIN leads l ON l.form_id = f.id
-		GROUP BY g.id, g.name
-		ORDER BY COUNT(l.id) DESC`, campaignIDs)
+		LEFT JOIN leads l ON l.form_id = f.id`
+	args := []any{campaignIDs}
+	// Bounds inside ON (not WHERE) so regions with zero leads stay listed.
+	on := ""
+	dateBounds(&on, &args, from, to)
+	q += on + ` GROUP BY g.id, g.name ORDER BY COUNT(l.id) DESC`
+	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +291,7 @@ type DailyLeadCount struct {
 }
 
 // LeadDailyCounts returns signups per day (oldest first, capped).
-func (r *ReportRepository) LeadDailyCounts(ctx context.Context, campaignIDs []string, days int) ([]DailyLeadCount, error) {
+func (r *ReportRepository) LeadDailyCounts(ctx context.Context, campaignIDs []string, days int, from, to *time.Time) ([]DailyLeadCount, error) {
 	out := []DailyLeadCount{}
 	if len(campaignIDs) == 0 {
 		return out, nil
@@ -275,12 +299,19 @@ func (r *ReportRepository) LeadDailyCounts(ctx context.Context, campaignIDs []st
 	if days <= 0 || days > 365 {
 		days = 30
 	}
-	rows, err := r.pool.Query(ctx, `
+	q := `
 		SELECT to_char(l.created_at, 'YYYY-MM-DD'), COUNT(*)
 		FROM leads l
 		JOIN forms f ON f.id = l.form_id
-		WHERE f.campaign_id = ANY($1) AND l.created_at >= now() - make_interval(days => $2)
-		GROUP BY 1 ORDER BY 1`, campaignIDs, days)
+		WHERE f.campaign_id = ANY($1)`
+	args := []any{campaignIDs}
+	dateBounds(&q, &args, from, to)
+	if from == nil && to == nil {
+		args = append(args, days)
+		q += ` AND l.created_at >= now() - make_interval(days => $` + itoa(len(args)) + `)`
+	}
+	q += ` GROUP BY 1 ORDER BY 1`
+	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

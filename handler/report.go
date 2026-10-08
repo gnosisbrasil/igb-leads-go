@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"igb-leads-go/authctx"
 	"igb-leads-go/model"
@@ -279,11 +280,19 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "Erro interno do servidor")
 		return
 	}
-	byStatus, err1 := h.reports.LeadStatusCounts(ctx, ids)
-	byCampaign, err2 := h.reports.CampaignLeadStats(ctx, ids)
-	byRegion, err3 := h.reports.RegionLeadStats(ctx, ids)
+	rng := service.ParseDateRange(q.Get("from"), q.Get("to"))
+	var from, to *time.Time
+	if rng.HasFrom {
+		from = &rng.From
+	}
+	if rng.HasTo {
+		to = &rng.To
+	}
+	byStatus, err1 := h.reports.LeadStatusCounts(ctx, ids, from, to)
+	byCampaign, err2 := h.reports.CampaignLeadStats(ctx, ids, from, to)
+	byRegion, err3 := h.reports.RegionLeadStats(ctx, ids, from, to)
 	days, _ := strconv.Atoi(firstOr(q.Get("days"), "30"))
-	byDay, err4 := h.reports.LeadDailyCounts(ctx, ids, days)
+	byDay, err4 := h.reports.LeadDailyCounts(ctx, ids, days, from, to)
 	if err := firstErr(err1, err2, err3, err4); err != nil {
 		log.Printf("Erro no overview: %v", err)
 		WriteError(w, http.StatusInternalServerError, "Erro interno do servidor")
@@ -303,6 +312,10 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 		"by_campaign": byCampaign,
 		"by_region":   byRegion,
 		"by_day":      byDay,
+		"range": map[string]any{
+			"from": q.Get("from"),
+			"to":   q.Get("to"),
+		},
 	})
 }
 
