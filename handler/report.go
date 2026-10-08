@@ -294,7 +294,8 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	byState, err4 := h.reports.StateLeadStats(ctx, ids, from, to)
 	days, _ := strconv.Atoi(firstOr(q.Get("days"), "30"))
 	byDay, err5 := h.reports.LeadDailyCounts(ctx, ids, days, from, to)
-	if err := firstErr(err1, err2, err3, err4, err5); err != nil {
+	regionDaily, err6 := h.reports.RegionDailyCounts(ctx, ids, days, from, to)
+	if err := firstErr(err1, err2, err3, err4, err5, err6); err != nil {
 		log.Printf("Erro no overview: %v", err)
 		WriteError(w, http.StatusInternalServerError, "Erro interno do servidor")
 		return
@@ -311,7 +312,7 @@ func (h *ReportHandler) Overview(w http.ResponseWriter, r *http.Request) {
 			"conversion_rate": service.ConversionRate(byStatus["converted"], total),
 		},
 		"by_campaign": byCampaign,
-		"by_region":   byRegion,
+		"by_region":   repository.AttachRegionDaily(byRegion, regionDaily),
 		"by_state":    byState,
 		"by_day":      byDay,
 		"range": map[string]any{

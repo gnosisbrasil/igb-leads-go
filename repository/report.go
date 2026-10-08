@@ -248,10 +248,11 @@ func (r *ReportRepository) CampaignLeadStats(ctx context.Context, campaignIDs []
 
 // RegionLeadStat is one row of the per-region breakdown.
 type RegionLeadStat struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Campaigns int    `json:"campaigns"`
-	Leads     int    `json:"leads"`
+	ID        string           `json:"id"`
+	Name      string           `json:"name"`
+	Campaigns int              `json:"campaigns"`
+	Leads     int              `json:"leads"`
+	Daily     []DailyLeadCount `json:"daily"`
 }
 
 // RegionLeadStats groups campaign and lead counts by region.
@@ -284,6 +285,56 @@ func (r *ReportRepository) RegionLeadStats(ctx context.Context, campaignIDs []st
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// RegionDailyCounts returns signups per day grouped by region id
+// (oldest first per region). Regions without leads in range are absent.
+func (r *ReportRepository) RegionDailyCounts(ctx context.Context, campaignIDs []string, days int, from, to *time.Time) (map[string][]DailyLeadCount, error) {
+	out := map[string][]DailyLeadCount{}
+	if len(campaignIDs) == 0 {
+		return out, nil
+	}
+	if days <= 0 || days > 365 {
+		days = 30
+	}
+	q := `
+		SELECT c.region_id, to_char(l.created_at, 'YYYY-MM-DD'), COUNT(*)
+		FROM leads l
+		JOIN forms f ON f.id = l.form_id
+		JOIN campaigns c ON c.id = f.campaign_id
+		WHERE f.campaign_id = ANY($1) AND c.region_id IS NOT NULL`
+	args := []any{campaignIDs}
+	dateBounds(&q, &args, from, to)
+	if from == nil && to == nil {
+		args = append(args, days)
+		q += ` AND l.created_at >= now() - make_interval(days => $` + itoa(len(args)) + `)`
+	}
+	q += ` GROUP BY 1, 2 ORDER BY 1, 2`
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var regionID, date string
+		var n int
+		if err := rows.Scan(&regionID, &date, &n); err != nil {
+			return nil, err
+		}
+		out[regionID] = append(out[regionID], DailyLeadCount{Date: date, Leads: n})
+	}
+	return out, rows.Err()
+}
+
+// AttachRegionDaily fills each region's Daily series from the grouped map.
+// Regions missing from the map keep a nil series.
+func AttachRegionDaily(regions []RegionLeadStat, daily map[string][]DailyLeadCount) []RegionLeadStat {
+	for i := range regions {
+		if d, ok := daily[regions[i].ID]; ok {
+			regions[i].Daily = d
+		}
+	}
+	return regions
 }
 
 // StateLeadStat is one row of the per-state (UF) breakdown.
